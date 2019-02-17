@@ -26,27 +26,7 @@ sub get : Chained('index') : PathPart('') : Args(2) {
     $c->add_author_key($author);
     $c->cdn_max_age('1y');
 
-    my $file
-        = $c->model('CPAN::File')->find_changes_files( $author, $release );
-    $file or $c->detach( '/not_found', [] );
-
-    my $source = $c->model('Source')->path( @$file{qw(author release path)} )
-        or $c->detach( '/not_found', [] );
-
-    $file->{content} = try {
-        local $/;
-        my $content = $source->openr->getline;
-
-        # Assume files are in UTF-8 (if not, do nothing)
-        # (see comments in metacpan-web/lib/MetaCPAN/Web/Model/API.pm).
-        try {
-            $content = Encode::decode( 'UTF-8', $content,
-                Encode::FB_CROAK | Encode::LEAVE_SRC );
-        };
-
-        $content;
-    };
-
+    my $file = _find_changes_file_and_slurp( $c, $author, $release ) or $c->detach([], '/not_found');
     $file = $self->apply_request_filter( $c, $file );
 
     $c->stash($file);
@@ -63,6 +43,29 @@ sub find : Chained('index') : PathPart('') : Args(1) {
 sub all : Chained('index') : PathPart('') : Args(0) {
     my ( $self, $c ) = @_;
     $c->detach('not_found');
+}
+
+sub _find_changes_file_and_slurp {
+    my ($c, $author, $release) = @_;
+
+    my $file = $c->model('CPAN::File')->find_changes_files( $author, $release ) or return;
+    my $source = $c->model('Source')->path( @$file{qw(author release path)} )   or return;
+
+    $file->{content} = try {
+        local $/;
+        my $content = $source->openr->getline;
+
+        # Assume files are in UTF-8 (if not, do nothing)
+        # (see comments in metacpan-web/lib/MetaCPAN/Web/Model/API.pm).
+        try {
+            $content = Encode::decode( 'UTF-8', $content,
+                Encode::FB_CROAK | Encode::LEAVE_SRC );
+        };
+
+        $content;
+    };
+
+    return $file;
 }
 
 1;
